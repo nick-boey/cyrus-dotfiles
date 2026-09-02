@@ -1,20 +1,23 @@
 # cyrus-dotfiles
 
 Dotfiles repo for [Cyrus](https://github.com/nick-boey/cyrus) sandboxes. It
-installs [Matt Pocock's agent skills](https://github.com/mattpocock/skills) into
-`~/.claude/skills/` so they are available to every Cyrus session.
+installs shared agent skills for Claude Code and Codex so they are available to
+every Cyrus session.
 
 ## What it does
 
-`install.sh` clones `mattpocock/skills` at a pinned commit and copies the 25
-skills the published `mattpocock-skills` plugin ships (`skills/engineering/` and
-`skills/productivity/`) into `~/.claude/skills/`. Nothing else.
+`install.sh` clones [Matt Pocock's skills](https://github.com/mattpocock/skills)
+at a pinned commit and copies the 25 skills the published plugin ships
+(`skills/engineering/` and `skills/productivity/`) into both
+`~/.claude/skills/` and `~/.codex/skills/`. It also installs this repository's
+`plan-review` and `implementation-review` skills into both locations. Reruns
+replace only these managed skills and preserve unrelated installed skills.
 
 Cyrus runs it on every container boot, before `cyrus start`
 (`ContainerBootCommand.applyDotfiles`). It is idempotent, and a failure is
 logged and swallowed rather than blocking the boot.
 
-11 of the 25 are model-invocable (`code-review`, `codebase-design`,
+11 of the third-party skills are model-invocable (`code-review`, `codebase-design`,
 `diagnosing-bugs`, `domain-modeling`, `grilling`, `prototype`, `research`,
 `resolving-merge-conflicts`, `tdd`, `wizard`, `writing-for-agents`). The other
 14 set `disable-model-invocation: true` and are only reachable as
@@ -36,6 +39,23 @@ Set these per-teammate environment variables on the router's `/setup` page:
 either. Set it to `none` only if you supply your own equivalents; otherwise
 sessions silently stop opening PRs and stop posting summaries.
 
+## Adversarial reviews
+
+The two repository-owned review skills are model-invokable but run only after
+an explicit review request or an explicitly invoked workflow checkpoint:
+
+- `plan-review` reviews plans supplied through Linear issues, projects, or
+  initiatives, plan files, documents, or conversation context. A Linear plan
+  includes its normative descendant hierarchy.
+- `implementation-review` reviews pull requests, branch diffs, or working-tree
+  changes and compares them with an optional plan.
+
+Both are read-only. In Claude they prefer the Codex CLI and fall back to a
+fresh Claude reviewer; in Codex they prefer the Claude Code CLI and fall back
+to a fresh Codex reviewer. Their output records the reviewer path, model,
+evidence completeness, and independence level. Required inaccessible evidence
+produces an `inconclusive` verdict rather than a partial approval.
+
 Requires a Cyrus router and worker built from commit `a6f24ed` or later
 (NOR-365) — earlier builds never read `~/.claude/skills/`, so `install.sh` would
 succeed and the skills would still be invisible to the model.
@@ -50,3 +70,7 @@ Edit `SKILLS_SHA` in `install.sh`. The current pin matches what the
 ```sh
 HOME=$(mktemp -d) sh install.sh
 ```
+
+Run the command twice with the same temporary `HOME` to verify idempotence.
+Both `$HOME/.claude/skills/` and `$HOME/.codex/skills/` should contain the same
+third-party set plus `plan-review` and `implementation-review`.

@@ -13,19 +13,48 @@ set -eu
 # mattpocock-skills. Bump this line to take a newer set.
 SKILLS_SHA=0ab1b63a410a03d3627979a109c8695de27af954
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 claude_skills_dir="$HOME/.claude/skills"
 codex_skills_dir="$HOME/.codex/skills"
+claude_plugin_dir="$HOME/.claude/plugins/cache/claude-plugins-official/mattpocock-skills"
+codex_plugin_dir="$HOME/.codex/plugins/cache/claude-plugins-official/mattpocock-skills"
 
-git clone -q https://github.com/mattpocock/skills.git "$tmp"
-git -C "$tmp" checkout -q "$SKILLS_SHA"
-
-# Replace only skills managed by this installer. Unrelated installed skills are
-# preserved, while reruns cannot leave stale files behind in managed skills.
+# Install a third-party skill only when the application cannot already see it
+# through its plugin, the shared agent directory, or its own skill directory.
 install_skills() {
+  source_dir=$1
+  destination_dir=$2
+  application=$3
+  plugin_dir=$4
+
+  mkdir -p "$destination_dir"
+  for skill_dir in "$source_dir"/*; do
+    [ -d "$skill_dir" ] || continue
+    skill_name=${skill_dir##*/}
+    existing_location=
+    for location in \
+      "$plugin_dir"/*/skills/engineering/"$skill_name" \
+      "$plugin_dir"/*/skills/productivity/"$skill_name" \
+      "$HOME/.agents/skills/$skill_name" \
+      "$destination_dir/$skill_name"
+    do
+      [ -f "$location/SKILL.md" ] || continue
+      existing_location=$location
+      break
+    done
+
+    if [ -n "$existing_location" ]; then
+      echo "Skill $skill_name already installed for $application in $existing_location. Skipping install."
+      continue
+    fi
+
+    cp -R "$skill_dir" "$destination_dir/$skill_name"
+  done
+}
+
+# Repository-owned skills are updated on each run and never installed into the
+# shared or plugin locations, so replacing them does not create duplicates.
+replace_skills() {
   source_dir=$1
   destination_dir=$2
 
@@ -38,14 +67,27 @@ install_skills() {
   done
 }
 
-# Only the categories the published plugin ships. `deprecated/`, `in-progress/`
-# and `misc/` are in the repo but not in .claude-plugin/plugin.json.
-for destination_dir in "$claude_skills_dir" "$codex_skills_dir"; do
-  install_skills "$tmp/skills/engineering" "$destination_dir"
-  install_skills "$tmp/skills/productivity" "$destination_dir"
-  install_skills "$script_dir/skills" "$destination_dir"
-done
+main() {
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
 
-claude_count=$(find "$claude_skills_dir" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
-codex_count=$(find "$codex_skills_dir" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
-echo "installed $claude_count skills into $claude_skills_dir and $codex_count skills into $codex_skills_dir"
+  git clone -q https://github.com/mattpocock/skills.git "$tmp"
+  git -C "$tmp" checkout -q "$SKILLS_SHA"
+
+  # Only the categories the published plugin ships. `deprecated/`, `in-progress/`
+  # and `misc/` are in the repo but not in .claude-plugin/plugin.json.
+  install_skills "$tmp/skills/engineering" "$claude_skills_dir" "Claude Code" "$claude_plugin_dir"
+  install_skills "$tmp/skills/productivity" "$claude_skills_dir" "Claude Code" "$claude_plugin_dir"
+  install_skills "$tmp/skills/engineering" "$codex_skills_dir" "Codex" "$codex_plugin_dir"
+  install_skills "$tmp/skills/productivity" "$codex_skills_dir" "Codex" "$codex_plugin_dir"
+  replace_skills "$script_dir/skills" "$claude_skills_dir"
+  replace_skills "$script_dir/skills" "$codex_skills_dir"
+
+  claude_count=$(find "$claude_skills_dir" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
+  codex_count=$(find "$codex_skills_dir" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
+  echo "$claude_count skill directories in $claude_skills_dir and $codex_count in $codex_skills_dir"
+}
+
+if [ "${INSTALL_SH_SOURCE_ONLY:-0}" != 1 ]; then
+  main
+fi

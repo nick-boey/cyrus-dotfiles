@@ -9,9 +9,12 @@ every Cyrus session.
 `install.sh` clones [Matt Pocock's skills](https://github.com/mattpocock/skills)
 at a pinned commit and copies the 25 skills the published plugin ships
 (`skills/engineering/` and `skills/productivity/`) into both
-`~/.claude/skills/` and `~/.codex/skills/`. It also installs this repository's
-`plan-review` and `implementation-review` skills into both locations. Reruns
-replace only these managed skills and preserve unrelated installed skills.
+`~/.claude/skills/` and `~/.codex/skills/`. Before copying each third-party
+skill, it checks that application's mattpocock plugin cache, the shared
+`~/.agents/skills/` directory, and the application's own skill directory; an
+existing skill is reported and skipped. It also installs this repository's
+`plan-review` and `implementation-review` skills into both application-specific
+locations, replacing only those repository-owned skills on reruns.
 
 Cyrus runs it on every container boot, before `cyrus start`
 (`ContainerBootCommand.applyDotfiles`). It is idempotent, and a failure is
@@ -72,5 +75,5 @@ HOME=$(mktemp -d) sh install.sh
 ```
 
 Run the command twice with the same temporary `HOME` to verify idempotence.
-Both `$HOME/.claude/skills/` and `$HOME/.codex/skills/` should contain the same
-third-party set plus `plan-review` and `implementation-review`.
+The second run should report each existing third-party skill and skip it while
+updating `plan-review` and `implementation-review`.

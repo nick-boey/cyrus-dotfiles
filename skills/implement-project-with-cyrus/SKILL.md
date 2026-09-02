@@ -37,12 +37,26 @@ session sits idle.
    issue. This is the only channel that reliably works.
 
 A **top-level** `@cyrus1` comment starts a fresh session **only when no live
-agent session already holds the issue**. If one does, Linear emits
-`AppUserNotification/issueCommentMention` instead of creating a session, and the
-router drops it. Since a session that finished its work does **not** necessarily
-reach a terminal state, an issue you have already run is often in exactly this
-state — so the top-level comment you send to restart it is the one most likely
-to vanish.
+agent session already holds the issue**. If one does, the router **rejects the
+new session on the issue lock** (`EventRouter.ts`, "Issue … already locked by
+another session"). Since a session that finished its work does **not**
+necessarily release the lock, an issue you have already run is often in exactly
+this state — so the top-level comment you send to restart it is the one most
+likely to vanish.
+
+**Do not diagnose this from the `ignoring non-agent-session webhook
+AppUserNotification/issueCommentMention` line.** Linear emits that *alongside*
+the real `AgentSessionEvent`, so it appears on comments that routed perfectly
+well. The router's own source says so:
+
+> Every rejection path above logs, and so does every webhook the router
+> deliberately drops — but until this line the SUCCESS path was silent, so a
+> console showing only "ignoring non-agent-session webhook" lines looked
+> exactly like an agent-session event that never arrived.
+
+Read `Routed session …` and `Issue … already locked …` instead. The lock
+rejection also posts a message into the session, so Linear itself will tell you
+if you look.
 
 **Default to replying in the thread.** Use a top-level comment only to start the
 first session on an issue, or to get a genuinely fresh reading
@@ -59,13 +73,15 @@ WS=<log-cyrus-dev customerId>   # az monitor log-analytics workspace show -g rg-
 az monitor log-analytics query -w $WS --analytics-query "
 ContainerAppConsoleLogs_CL
 | where TimeGenerated > ago(10m)
-| where Log_s contains 'Routed session' or Log_s contains 'ignoring non-agent-session' or Log_s contains 'webhook.received'
+| where Log_s contains 'Routed session' or Log_s contains 'already locked' or Log_s contains 'webhook.received'
 | project TimeGenerated, Log_s | order by TimeGenerated asc"
 ```
 
 `Routed session …` or `webhook.received` for your issue means it landed.
-`EventRouter ignoring non-agent-session webhook …` at the time you posted means
-it did not — repost as an in-thread reply.
+`Issue … already locked by another session` means a live session holds it and
+yours was rejected — repost as an in-thread reply. **Do not** read
+`ignoring non-agent-session webhook …` as the drop; it fires on successful
+comments too.
 
 The cheaper tell, without Azure: **the issue moves to In Progress and the agent
 posts within a few minutes.** Silence for 15 minutes after a comment you expected
@@ -73,14 +89,31 @@ to wake a session means it was dropped, not that the agent is thinking.
 
 ### When a session is stuck holding an issue
 
-A sandbox that is `running`, `online`, holds a session, and has had nothing
-routed to it for hours is **not** reported as stranded — `noteStranded` requires
-`stopped`/`absent` and offline, so the failure that blocks work is excluded from
-detection by construction. The alert cannot fire for it. The gauge line carries
-the evidence (`cyrus.sessions`, `cyrus.online`, `cyrus.last_routed_age_ms`) and
-nothing reads it.
+**Assume nothing will tell you.** Two distinct failures both end with a session
+held and no work happening, and neither reaches you:
 
-Recovery is an in-thread reply, which reaches the sandbox regardless.
+- **Running but idle.** `running`, `online`, holds a session, nothing routed for
+  hours. `noteStranded` requires `stopped`/`absent` **and** offline, so this is
+  excluded from detection by construction — the alert *cannot* fire for it.
+- **Stopped with the lock leaked.** The session started, ended, and the sweep
+  idle-stopped the container before its terminal frame reached the router, so
+  the issue lock and device affinity leak. Stranded detection **does** fire
+  here.
+
+The second one still does not reach you, because **the alert rules have no
+action group attached** — they evaluate, they fire, and nothing is notified.
+Verify before relying on any of them:
+
+```bash
+az monitor scheduled-query list -g rg-cyrus --query "[].{name:name,actions:actions}"
+```
+
+`actions: null` means the detector is write-only. Until that is fixed, **you are
+the monitoring** — poll the gauge line yourself (`cyrus.sessions`,
+`cyrus.online`, `cyrus.last_routed_age_ms`) rather than waiting to be told.
+
+Recovery for both is the same: an in-thread reply, which cold-boots a stopped
+sandbox and reaches a running one regardless of state.
 
 Cyrus moves the issue to In Progress on start and to Done when its PR merges.
 Parents are **not** moved automatically — see *Closing parents*.

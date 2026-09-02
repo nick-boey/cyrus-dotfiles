@@ -1,6 +1,6 @@
 ---
 name: implement-project-with-cyrus
-description: Use when driving a whole Linear project to completion with Cyrus agents — launching implementation and review sessions from Linear comments, verifying and merging PRs, sequencing rebases, and closing parent issues. Covers the review brief patterns that actually find defects, sequencing conflicting PRs, and what to escalate rather than decide.
+description: Use when driving a whole Linear project to completion with Cyrus agents — launching implementation and review sessions from Linear comments, verifying and merging PRs, sequencing rebases, and closing parent issues. Covers the review brief patterns that actually find defects, sequencing conflicting PRs, what to escalate rather than decide, and which work the orchestrator must run itself because sandboxes cannot reach deployed infrastructure.
 ---
 
 # Driving a Linear project with Cyrus
@@ -9,6 +9,10 @@ You are the orchestrator, not the implementer. Cyrus agents write the code and
 review it; you decide **what runs when**, **whether a PR is safe to merge**, and
 **what needs a human**. Resist the urge to implement — a session spent writing
 code is a session not spent keeping five streams moving.
+
+The one thing you do run yourself is **infrastructure**. Sandboxes cannot reach
+deployed state at all, so every `az` call, live query and post-merge
+verification is yours. See *What a sandbox cannot do*.
 
 ## How Cyrus works
 
@@ -112,6 +116,75 @@ exist). The router is `app-cyrus-dev-router`; the Log Analytics workspace is
 A sandbox idle-stops five minutes after its last activity. **An `idle_stopped`
 event is not a fault** — a sandbox stopping after a session finishes is correct.
 Replying in the thread cold-boots a stopped sandbox.
+
+## What a sandbox cannot do — scope every brief to code only
+
+**A Cyrus sandbox has no access to deployed state or infrastructure.** No `az`
+CLI, no cloud credentials, and no outbound network reach — a session that tries
+gets `000` from every host and a `403` from the proxy on anything it can reach
+at all. It cannot read a container app's environment, query Log Analytics, list
+a Key Vault, enumerate a role assignment, reach a deployed API, or download its
+own CI artifacts (the results storage account returns `403`).
+
+So **the division of labour is not negotiable**: sandboxes write and test code;
+**the orchestrator runs every infrastructure command.** Give a session the
+repository and the reasoning, and keep the measurement yourself.
+
+### Why this matters more than it sounds
+
+The failure mode is not a session reporting that it is blocked. It is a session
+producing a **confident, plausible, wrong answer** — because the ticket said
+something and nothing was available to contradict it. Three shapes recur:
+
+- **A passing suite presented as equivalent to a deployed check.** "1617 passed"
+  says nothing about four documents stuck in a real environment.
+- **A premise inherited from the issue and never tested.** Issue descriptions
+  are the weakest link in this whole loop; the ones that survive contact with a
+  running system are the exception.
+- **A claim about live configuration derived from the repository.** The
+  committed model is what *should* be there. It is routinely not.
+
+The best sessions say plainly that they could not reach the environment. Ask for
+that explicitly, and treat it as a good outcome rather than a gap.
+
+### What the orchestrator must carry
+
+Anything whose answer lives outside the repository:
+
+- Reading live container-app env, secrets, revisions, identities and ingress
+- Key Vault contents and RBAC role assignments
+- Log Analytics and Application Insights queries
+- Calling a deployed API, re-seeding an environment, checking a database
+- Verifying that a fix actually works in dev or prod after it merges
+
+Do this with subagents on your own machine so it does not eat your context, and
+**report the measured result back into the issue thread** so the session is
+working from evidence rather than from the ticket.
+
+### Write briefs that say which side of the line the work is on
+
+State it, rather than assuming the session will infer it:
+
+> Do **not** attempt any `az` command or infrastructure change — you have no
+> credentials and no outbound reach. Write the code and the reasoning; I will
+> run what needs running and report the result back into this thread.
+
+And when a brief carries a fact you measured, say it was measured and that the
+rest is an expectation to verify. A session told "this is fact, that is
+hypothesis" checks the hypothesis; a session handed a flat assertion builds on
+it.
+
+### The measured cost of getting this wrong
+
+A deployment PR reached "all 18 checks green" with a change that would have
+taken production offline: the model told a container app to read a Key Vault
+secret its managed identity had **no grant on** in prod, so the first reconcile
+would have failed to provision a revision. It was invisible from the sandbox and
+took one `az role assignment list` from the orchestrator to find. What made it
+invisible was a comment in the repository asserting the grant existed — true in
+dev, written environment-agnostically, false in prod.
+
+**The repository cannot tell you what is deployed. Only the deployment can.**
 
 ## Writing review briefs that find things
 
@@ -225,8 +298,9 @@ Escalate to the human:
   not a gate. Tell the session not to self-approve, and get the human's call.
 - **Accepted-ADR behaviour** a review disagrees with. Reviews should flag, not
   reinterpret; an ADR change is a separate issue.
-- **Anything unverifiable in the sandbox** — a currency list that cannot be
-  checked against its register without network, for example.
+- **Anything unverifiable in the sandbox** *and* by you — a currency list that
+  cannot be checked against its register without network, for example. Anything
+  needing live infrastructure is not an escalation; it is yours to measure.
 - **Scope questions**, where meeting a criterion literally would break an
   architectural rule.
 

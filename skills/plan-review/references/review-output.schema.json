@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "provenance", "findings", "next_steps"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["approve", "needs-attention", "inconclusive"]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "reviewer_path", "model", "target", "evidence_completeness", "independence"],
+      "properties": {
+        "host": { "type": "string", "enum": ["claude", "codex", "other"] },
+        "reviewer_path": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "evidence_completeness": { "type": "string", "enum": ["complete", "partial"] },
+        "independence": { "type": "string", "enum": ["cross-model", "fresh-subagent", "fresh-main-context"] }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "title", "body", "location", "confidence", "recommendation"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "title": { "type": "string", "minLength": 1 },
+          "body": { "type": "string", "minLength": 1 },
+          "location": { "type": "string", "minLength": 1 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "recommendation": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "next_steps": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

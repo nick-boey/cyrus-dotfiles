@@ -6,7 +6,8 @@ description: Run a read-only adversarial implementation review only when the use
 # Implementation review
 
 Challenge whether the identified implementation is correct, safe to ship, and faithful to its plan.
-This is a review-only operation: return findings, make no edits, and stop.
+This is a read-only operation on the implementation: review it, change nothing in the tree, and leave
+disposition to the caller.
 
 ## 1. Resolve the implementation
 
@@ -70,5 +71,19 @@ provenance values. Require JSON matching the schema.
 On malformed or schema-invalid output, retry the same reviewer once with the validation errors. If
 the retry fails, use the fallback reviewer. Never silently repair or reinterpret findings.
 
-Sort findings critical to low. Return the validated review with provenance, then stop. The caller
-owns disposition and follow-up work.
+Sort findings critical to low.
+
+## 5. Deliver the review
+
+Before returning, check the project's agent-instruction files — the repository `CLAUDE.md` or
+`AGENTS.md`, plus any nested ones covering the changed paths — for a rule governing where a review is
+recorded and in what shape. **A project convention overrides this skill.** When one names a
+destination or format — a tagged issue comment, a specific tracker, a required findings table with a
+disposition column — publish the validated review there in that shape, then tell the user where it
+landed. Publishing the review is not an edit to the implementation: the read-only constraint covers
+the code under review, never the review itself.
+
+Absent such a rule, return the validated review with provenance to the user and stop.
+
+Either way the caller owns disposition and follow-up work. Never adopt a finding, apply a fix, or
+record the review as actioned on the caller's behalf.

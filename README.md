@@ -13,8 +13,8 @@ at a pinned commit and copies the 25 skills the published plugin ships
 skill, it checks that application's mattpocock plugin cache, the shared
 `~/.agents/skills/` directory, and the application's own skill directory; an
 existing skill is reported and skipped. It also installs this repository's
-`plan-review` and `implementation-review` skills into both application-specific
-locations, replacing only those repository-owned skills on reruns.
+`cross-model-cli`, `plan-review`, and `implementation-review` skills into both
+application-specific locations, replacing only those repository-owned skills on reruns.
 
 Cyrus runs it on every container boot, before `cyrus start`
 (`ContainerBootCommand.applyDotfiles`). It is idempotent, and a failure is
@@ -53,11 +53,15 @@ an explicit review request or an explicitly invoked workflow checkpoint:
 - `implementation-review` reviews pull requests, branch diffs, or working-tree
   changes and compares them with an optional plan.
 
-Both are read-only. In Claude they prefer the Codex CLI and fall back to a
-fresh Claude reviewer; in Codex they prefer the Claude Code CLI and fall back
-to a fresh Codex reviewer. Their output records the reviewer path, model,
-evidence completeness, and independence level. Required inaccessible evidence
-produces an `inconclusive` verdict rather than a partial approval.
+Both run a mutation-free adversarial diagnosis before remediation. They address
+validated findings, verify the resulting implementation or plan, and report the
+disposition of every finding. Implementation findings remain unresolved when a
+fix would violate the original plan or another genuine blocker applies. Plan
+findings remain unresolved when the correction requires user input.
+
+`cross-model-cli` is separate from the review workflows. It detects whether it
+is running under Codex or Claude Code and sends an arbitrary prompt through the
+opposite CLI with task-appropriate permissions.
 
 Requires a Cyrus router and worker built from commit `a6f24ed` or later
 (NOR-365) — earlier builds never read `~/.claude/skills/`, so `install.sh` would

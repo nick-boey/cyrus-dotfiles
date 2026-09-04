@@ -12,14 +12,11 @@
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["host", "reviewer_path", "model", "target", "evidence_completeness", "independence"],
+      "required": ["reviewer_path", "target", "evidence_completeness"],
       "properties": {
-        "host": { "type": "string", "enum": ["claude", "codex", "other"] },
         "reviewer_path": { "type": "string", "minLength": 1 },
-        "model": { "type": "string", "minLength": 1 },
         "target": { "type": "string", "minLength": 1 },
-        "evidence_completeness": { "type": "string", "enum": ["complete", "partial"] },
-        "independence": { "type": "string", "enum": ["cross-model", "fresh-subagent", "fresh-main-context"] }
+        "evidence_completeness": { "type": "string", "enum": ["complete", "partial"] }
       }
     },
     "findings": {
@@ -27,8 +24,9 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["severity", "title", "body", "location", "confidence", "recommendation"],
+        "required": ["id", "severity", "title", "body", "location", "confidence", "recommendation"],
         "properties": {
+          "id": { "type": "string", "pattern": "^PR-[0-9]+$" },
           "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
           "title": { "type": "string", "minLength": 1 },
           "body": { "type": "string", "minLength": 1 },

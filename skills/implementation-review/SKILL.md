@@ -1,13 +1,12 @@
 ---
 name: implementation-review
-description: Run a read-only adversarial implementation review only when the user explicitly requests an implementation or PR review, or when an explicitly invoked workflow requires one. Reviews pull requests, branch diffs, or working-tree changes against an optional plan using an independent opposite-model CLI, and returns structured findings without applying fixes.
+description: Use when the user explicitly requests an implementation or PR review, or when an explicitly invoked workflow requires one.
 ---
 
 # Implementation review
 
-Challenge whether the identified implementation is correct, safe to ship, and faithful to its plan.
-This is a read-only operation on the implementation: review it, change nothing in the tree, and leave
-disposition to the caller.
+Challenge whether the identified implementation is correct, safe to ship, and faithful to its plan,
+then address every validated finding that can be resolved without violating the plan.
 
 ## 1. Resolve the implementation
 
@@ -42,48 +41,58 @@ evidence remain, set it to `inconclusive` while still reviewing the code. Do not
 review comments before the independent pass; afterward, unresolved threads may identify duplicate
 or already-known findings without suppressing them.
 
-## 3. Select an independent reviewer
-
-Identify the host runtime, then read the matching reference in full:
-
-- Claude host: read `references/codex-cli.md` and prefer the Codex CLI.
-- Codex host: read `references/claude-code-cli.md` and prefer the Claude Code CLI.
-
-Honor a user-specified model. Otherwise choose the strongest known review-capable model available,
-preferring reasoning quality over speed and cost. If availability cannot be determined reliably,
-use the CLI default. Record the actual model when known, otherwise record `cli-default (exact model
-unavailable)`.
-
-If the preferred CLI is missing, unauthenticated, unsupported, or fails, use a fresh read-only
-host-native subagent. If no subagent exists, the main agent may review only when it did not author,
-edit, recommend, or previously evaluate the implementation in this session. When independence is
-uncertain, it is compromised. If no independent or fresh reviewer is possible, return
-`inconclusive` with diagnostics.
-
-Record independence as `cross-model`, `fresh-subagent`, or `fresh-main-context`.
-
-## 4. Run and validate
+## 3. Run the adversarial review
 
 Read `references/implementation-review-prompt.md` and `references/review-output.schema.json` in
 full. Supply the target, focus, evidence manifest, implementation evidence, optional plan, and
-provenance values. Require JSON matching the schema.
+reviewer provenance. Require JSON matching the schema.
+
+Use a fresh reviewer subagent when available. Give it read-only evidence and no implementation
+authority so diagnosis stays separate from remediation. When no subagent is available, perform a
+distinct adversarial pass before making any changes and record `main-agent` as the reviewer path.
 
 On malformed or schema-invalid output, retry the same reviewer once with the validation errors. If
-the retry fails, use the fallback reviewer. Never silently repair or reinterpret findings.
+the retry fails, use another fresh reviewer when available. Otherwise return `inconclusive` with the
+validation diagnostics. Never silently repair or reinterpret findings.
 
 Sort findings critical to low.
 
-## 5. Deliver the review
+## 4. Adjudicate and remediate
+
+Check every finding against the implementation and plan evidence before acting. Track each finding
+through remediation, then assign one final disposition:
+
+- `fixed`: the finding was valid, the implementation was corrected, and verification passed;
+- `not-fixed`: the finding was invalid, already addressed, remains blocked after safe in-scope
+  alternatives were exhausted, or its correction would conflict with a normative requirement in
+  the original plan;
+- `needs-user-input`: resolving a real or potential defect requires choosing between interpretations
+  of the plan or expanding the authorized scope.
+
+Fix all validated findings that do not meet a `not-fixed` or `needs-user-input` condition. Follow the
+repository's implementation and testing instructions. Do not rewrite or reinterpret the original
+plan merely to make a correction appear conformant. For every plan conflict, cite the conflicting
+requirement and explain the defect that would remain.
+
+Run targeted verification for each fix, then the repository's relevant broader checks. When fixes
+materially change the reviewed behavior, run another adversarial pass over the resulting diff and
+repeat until there are no new material findings or every remaining finding has a recorded stop
+reason. Prefix reviewer IDs with the pass number when consolidating results (for example,
+`P1-IR-001`) so findings from repeated passes cannot collide.
+
+## 5. Report every finding
 
 Before returning, check the project's agent-instruction files — the repository `CLAUDE.md` or
 `AGENTS.md`, plus any nested ones covering the changed paths — for a rule governing where a review is
-recorded and in what shape. **A project convention overrides this skill.** When one names a
-destination or format — a tagged issue comment, a specific tracker, a required findings table with a
-disposition column — publish the validated review there in that shape, then tell the user where it
-landed. Publishing the review is not an edit to the implementation: the read-only constraint covers
-the code under review, never the review itself.
+recorded and in what shape. A project convention overrides the destination and presentation format.
 
-Absent such a rule, return the validated review with provenance to the user and stop.
+Report every finding from every pass, including findings later rejected or superseded, in a table
+with these required columns: `ID`, `severity`, `finding`, `disposition`, `rationale`, `changes`, and
+`verification`. Cite files and plan requirements in the finding or rationale cells.
 
-Either way the caller owns disposition and follow-up work. Never adopt a finding, apply a fix, or
-record the review as actioned on the caller's behalf.
+Recompute the final verdict from the resulting implementation: `approve` when no validated material
+defect remains, `needs-attention` when a validated defect is not fixed or needs user input, and
+`inconclusive` when the final implementation or required evidence could not be inspected.
+`inconclusive` takes precedence when verdict conditions overlap. Summarize spec conformance, changed
+files, checks run, and decisions still required from the user. Publish the report to a
+convention-mandated destination when authorized; otherwise return it directly to the user.
